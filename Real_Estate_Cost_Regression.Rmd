@@ -1,0 +1,244 @@
+---
+title: "Project 2: Predicting King County Real Estate Prices"
+author: "Cam Nguyen, Kalina Gavrilova, Lauren Louie"
+date: '2022-11-29'
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+```
+
+# Problem Description 
+
+  Our client is interested in entering the real estate market, and wants our team to help him gather more information regarding the housing market in the King County. Most importantly, he would like to know which factors determine the price of a home, and to predict how much a new set of King County homes could be sold for based on their characteristics. 
+
+# Objective 
+
+  Create two models using available data from homes sold in the King County to establish which variables are most important in determining the price of a home, and use these models to predict the prices of new homes that our client could put on the market. 
+
+# Data Description 
+
+  The data set available to us had just over 15,000 observations, and included 20 predictive variables about the homes that might have influenced their final price. Some of these variables were related to the actual specifications of the houses (such as size in square feet, number of bedrooms and bathrooms, etc.), while others revolved more around the sale of the houses (date of sale, number of times it was viewed, etc.), and others considered location factors (zip code, whether or not the house had a waterfront location, etc.). 
+
+# Model 1 - Regression/Classification Tree
+## Loading Data and removing variables
+```{r}
+library(caret)
+library(rpart)
+library(rpart.plot)
+library(forecast)
+library(car)
+library(lmtest)
+
+house <- read.csv("house_8.csv", header = TRUE)
+head(house, 10)
+str(house)
+names(house)
+
+house <- house[ , c(7, 10, 13, 16, 19)]
+names(house)
+```
+
+## Training Validation Split
+```{r}
+set.seed(666)
+
+
+train_index <- sample(1:nrow(house), 0.7 * nrow(house))
+valid_index <- setdiff(1:nrow(house), train_index)
+
+train_df <- house[train_index, ]
+valid_df <- house[valid_index, ]
+nrow(train_df)
+```
+
+## Regression Tree
+```{r}
+regress_tr <- rpart(price ~ sqft_living + waterfront + grade + yr_built,
+                    data = train_df, method = "anova", maxdepth = 20)
+prp(regress_tr)
+
+predict_train <- predict(regress_tr, train_df)
+accuracy(predict_train, train_df$price)
+
+predict_valid <- predict(regress_tr, valid_df)
+accuracy(predict_valid, valid_df$price)
+
+```
+
+## Predict new record
+```{r}
+new_houses <- read.csv("house_test_8.csv", header = TRUE)
+names(new_houses)
+
+new_houses <- new_houses[ , c(9, 12, 15, 18)]
+names(house)
+
+regress_tr_pred <- predict(regress_tr, newdata = new_houses)
+regress_tr_pred
+
+```
+
+## Classification Tree to test accuracy of model
+```{r}
+house$cat_price <- ifelse(house$price <= mean(house$price, na.rm = TRUE), "0", "1")
+table(house$cat_price)
+
+# mean(house$price)
+# median(house$price)
+
+house$cat_price <- as.factor(house$cat_price)
+
+
+
+# Remove the numerical Price variable to avoid 
+# confusion (optional, but advisable)
+house_cat <- house[,- c(1)]
+names(house_cat)
+```
+
+## Training validation split
+
+```{r}
+set.seed(666)
+
+
+train_cat_index <- sample(1:nrow(house_cat), 0.7 * nrow(house_cat))
+valid_cat_index <- setdiff(1:nrow(house_cat), train_cat_index)
+
+train_cat_df <- house_cat[train_cat_index, ]
+valid_cat_df <- house_cat[valid_cat_index, ]
+
+# check
+
+nrow(train_cat_df)
+nrow(valid_cat_df)
+
+head(train_cat_df)
+head(valid_cat_df)
+
+```
+
+## Classification tree
+
+```{r}
+class_tr <- rpart(cat_price ~ sqft_living + waterfront + grade + yr_built, data = train_cat_df, method = "class", maxdepth = 20)
+
+prp(class_tr)
+
+# The confusion matrices
+
+# training set
+
+class_tr_train_predict <- predict(class_tr, train_cat_df,
+                                  type = "class")
+
+t(t(head(class_tr_train_predict,3)))
+
+confusionMatrix(class_tr_train_predict, train_cat_df$cat_price, positive = "1")
+
+# validation set
+class_tr_valid_predict <- predict(class_tr, valid_cat_df,
+                                  type = "class")
+t(t(head(class_tr_valid_predict,3)))
+
+confusionMatrix(class_tr_valid_predict, valid_cat_df$cat_price, positive = "1")
+# The probabilities
+class_tr_valid_predict_prob <- predict(class_tr, valid_cat_df,
+                                  type = "prob")
+
+head(class_tr_valid_predict_prob)
+
+
+
+# How do the accuracies compare?
+
+```
+First try had more variables for the model but after running regression tree took out the variables and still had same accuracy.
+
+# Model Process and Analysis 
+
+  For this model, we chose to build both a regression tree which would predict the numerical price of new records, as well as a classification tree, which can predict the price of new records as a categorical value (high or low price). The variables we considered were: square footage of the house, whether the house was a waterfront property, the overall 'grade' assigned to the house by the county based on its quality, and the age of the house. We felt that these variables would have the biggest impact on the price of a home in this area, and would have the least correlation to each other relative to the other variables available to us- for example, homes with a larger square footage likely also have more bedrooms and bathrooms than homes with a smaller square footage, so by only using the square footage as a variable, we are mitigating the impacts of correlated independent variables on our models. 
+  
+  Our regression tree indicates that the most important factor regarding a house's price is its size- however, all of the variables we selected were represented in the tree. Overall, the error of this tree was relatively low, with an RMSE of 249,148 in the validation data. This measure of error puts the magnitude of the error on the same scale as the value we are predicting, meaning that in this scenario, the model had an average error of $249,148 in its predictions of the home prices. 
+  
+  To create a classification tree from the same variables, we created a new categorical price variable, in which the homes that were below the average price within the data set would be classified as low (0), and those above the average price would be classified as high (1). Interestingly, in this tree the most important factor in determining a house's price was it's grade, and its waterfront location was not a factor that was represented in the tree. This tree had great accuracy, however, with around 81% in both the training and validation sets. The drawback of this tree, however, is that despite its accuracy in sorting homes as high or low value, it does not provide a numerical prediction for the housing prices like the regression tree does.  
+
+
+# Model 2 - Linear Regression
+
+## Training validation split
+```{r}
+set.seed(666)
+
+
+train_index_lr <- sample(1:nrow(house), 0.7 * nrow(house))
+valid_index_lr <- setdiff(1:nrow(house), train_cat_index)
+
+train_df_lr <- house[train_index_lr, ]
+valid_df_lr <- house[valid_index_lr, ]
+
+# check
+
+nrow(train_df_lr)
+nrow(valid_df_lr)
+
+head(train_df_lr)
+head(valid_df_lr)
+
+```
+
+## Training the model
+```{r}
+price_model <- lm(price ~ sqft_living + waterfront + grade + yr_built,
+                      data = train_df_lr)
+summary(price_model)
+```
+
+## Model Evaluation
+```{r}
+
+price_model_pred_train <- predict(price_model,
+                                train_df_lr)
+
+accuracy(price_model_pred_train, train_df_lr$price)
+
+price_model_pred_valid <- predict(price_model,
+                                valid_df_lr)
+
+accuracy(price_model_pred_valid, valid_df_lr$price)
+
+summary(price_model)
+# summary(regress_tr)
+
+vif(price_model)
+
+bptest(price_model)
+```
+
+## Predicting
+```{r}
+price_model_pred_new <- predict(price_model,
+                                newdata = new_houses, interval = "confidence")
+price_model_pred_new
+```
+
+# Model Process and Analysis 
+
+  The statistical results of our model indicate that all of the variables are statistically significant. This means that the results of our model are highly unlikely to be based on random chance alone, and that the variables selected are playing a role in determining the price of the homes overall. The square footage variable had a coefficient of 160.5- this means that for each 1 sq. ft. increase in size, the home's price is estimated to increase by $160.50. Applying the same principal to the rest of the variables, waterfront location increased a home's price by $781,100, a 1-point increase in a home's grade increased its price by $146,000, and a 1-year increase in a home's age decreased its price by $3,433. These relationships all make sense- homes that are larger, are on the water, and have higher grades assigned to them regarding their quality are likely going to be worth more money, while homes that are older are likely to be worth less money. 
+  
+  Overall, this model resulted in a similar but slightly smaller error as our regression tree, with an average error of $228,259 compared to $249,148 in our previous regression tree model. The accuracy of this model was somewhat good, with an adjusted R-squared value of 0.6376. This value suggests that 63.76% of variation in the housing prices in this data can be attributed to the variables considered by the model. 
+
+# Model Selection 
+
+  Based on these results, we would select model 1 because of the visual learning benefits of the tree. Our client is able to see how records are evaluated and houses are priced. The first model is more useful for our client to learn about the housing market. The two models have very close RMSE values and MAPE values. While the error in this model was slightly larger than that of model 2, the difference was relatively small ($20,889) compared to the value of the actual homes. The classification tree is also useful for the client to see what values and variables make a home higher than the median price or lower.  
+  
+# New Homes Prediction 
+
+```{r, echo=TRUE}
+regress_tr_pred
+
+```
+Using the regression tree in model 1, these are the predicted prices of the 20 new homes based on their characteristics. 
